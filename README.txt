@@ -1,0 +1,1 @@
+Digital Spool Holder (with Scale) by InterlinkKnight on Thingiverse: https://www.thingiverse.com/thing:5677322
