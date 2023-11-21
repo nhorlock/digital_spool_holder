@@ -1,10 +1,11 @@
 # Digital_spool_holder V2
 
 ![An image of the spool holder project](https://img.thingiverse.com/cdn-cgi/image/fit=contain,quality=95,width=640/https://cdn.thingiverse.com/assets/a4/cd/1e/ce/07/large_display_8fc11203-5cf1-4a74-8cd6-9984aafc7cdd.jpeg)
+
 A digital spool holder for 3d printers. Based on the original by InterlinkKnight
 License: [CC-BY-NC](https://creativecommons.org/licenses/by-nc/4.0/)
 
-* Share & adapt, attribution is required. Non-commercial use only.
+* Share & adapt; attribution is required. Non-commercial use only.
 
 Digital Spool Holder (with Scale) by InterlinkKnight on Thingiverse: <https://www.thingiverse.com/thing:5677322>
 
@@ -22,7 +23,7 @@ Neil @ Zyxt
 
 ### Tutorials and explanations
 
-By far the best documentation is the [excellent tutorial by InterlinkKnight](https://www.instructables.com/Digital-Spool-Holder-with-Scale/). He also has [a great video](https://www.youtube.com/watch?v=WO-hR7okl3k&ab_channel=InterlinkKnight) demonstrating the reasons behind his design choices.
+By far, the best documentation is the [excellent tutorial by InterlinkKnight](https://www.instructables.com/Digital-Spool-Holder-with-Scale/). He also has [a great video](https://www.youtube.com/watch?v=WO-hR7okl3k&ab_channel=InterlinkKnight) demonstrating the reasons behind his design choices.
 
 ### The code
 
@@ -32,15 +33,15 @@ The code is intended to be largely standalone; it is fully configurable at runti
 
 As the original creator notes at various points, his PCB designs are available on PCBWay, or you may use the Gerber files he provides to send to a fabricator of your choice (or make your own).
 
-The easiest way is to simply find the [digital spool holder project](https://www.pcbway.com/project/shareproject/Digital_Spool_Holder_with_Scale_3b6cab54.html) on PCBWay's shared project platform and "add to basket." That is what I did, and five immaculate PCBs turned up a few weeks later, which gave me time to gather the rest of the items. By using InterlinkKnight's project above you will also support him (in a very tiny way) as PCBWay donate 10% of the cost to the Author.
+The easiest way is to simply find the [digital spool holder project](https://www.pcbway.com/project/shareproject/Digital_Spool_Holder_with_Scale_3b6cab54.html) on PCBWay's shared project platform and "add to basket." That is what I did, and five immaculate PCBs turned up a few weeks later, which gave me time to gather the rest of the items. By using InterlinkKnight's project above, you will also support him (in a very tiny way) as PCBWay donates 10% of the cost to the Author.
 
 ### General hardware and electronics
 
-All of the components that you will need are listed as part of the Instructables site. I purchased OLED Displays from Ebay. I bought the HX711 strain gauges on Amazon analong with any other items I didn't already have.
+All the components that you will need are listed as part of the Instructables site. I purchased OLED Displays from eBay. I bought the HX711 strain gauges on Amazon along with any other items I didn't already have.
 
 ### Printables
 
-The main printables are found on [InterlinkKnight's thingiverse listing](https://www.thingiverse.com/thing:5677322). You will also find a number of remixes listed there including my own remix of the spool holder base for the K1/K1 Max.
+The main printables are found on [InterlinkKnight's](https://www.thingiverse.com/thing:5677322)Thingiverse[listing](https://www.thingiverse.com/thing:5677322). You will also find a number of remixes listed there, including my own remix of the spool holder base for the K1/K1 Max.
 
 ## Notable changes
 
