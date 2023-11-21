@@ -432,7 +432,6 @@ enum PAGES
   START_PAGE = 0,
   NORMAL_PAGE= 100,
   MAIN_MENU_PAGE = 1001,
-
   EDIT_PROFILE_PAGE = 2101,
   TARE1_PAGE = 2111,
   TARE2_PAGE = 2120, // Tare 2: saving the weight
@@ -441,7 +440,6 @@ enum PAGES
   DELETE_PROFILE_PAGE = 2301,
   PROFILE_DELETED_PAGE = 2311,
   PROFILE_NOT_DELETED_PAGE = 2312, // only 1 left, delete failed
-
   NEW_PROFILE_PAGE = 3001,
   NO_MORE_SPACE_AVAILABLE_PAGE = 3012,
   OPTIONS_PAGE = 3201,
@@ -684,7 +682,8 @@ void ResetSmoothing()  // Start of reseting smoothing and deadzone variables to 
   RawLoadCellReading = RawLoadCellReading /10;  // Remove one digit from the raw reading to reduce the value and could be handle by the map function
 
   // Remap to convert Raw Values into grams:
-  HolderWeight = map(RawLoadCellReading, config.emptyHolderRaw, config.fullSpoolRaw, 0, config.fullSpoolWeight);  // Remaps temperature IN to color value
+  // this effectively takes the full sppool raw and the empty holder raw, as the raw range and maps those to 0-"given weight", thus establishing a ratio of raw to real.
+  HolderWeight = map(RawLoadCellReading, config.emptyHolderRaw, config.fullSpoolRaw, 0, config.fullSpoolWeight); 
   HolderWeight = constrain(HolderWeight, 0, 9999);  // limits value between min and max to prevent going over limits
     
   HolderWeight = HolderWeight - currentProfilePtr->emptySpoolMeasuredWeight;  // Remove the weight of the empty spool
@@ -838,7 +837,6 @@ void setup()  // Start of setup
   DEBUGS("STEUP: writing Config - DONE");
   u8g.begin();
    // End of setup
-  delay(1000);
 }
 void loop()  // Start of loop
 {
@@ -848,11 +846,8 @@ void loop()  // Start of loop
   // Read load cell only if it's available. This is so the loop run faster
   if(scale.is_ready())
   {
-    // DEBUGS("reading scale");
     RawLoadCellReading = scale.read();
     RawLoadCellReading = RawLoadCellReading /10;  // Remove one digit from the raw reading to reduce the value and could be handle by the map function
-    // DEBUGV(RawLoadCellReading);
-    // DEBUGS("reading scale - DONE");
   }
   
 
@@ -941,13 +936,13 @@ void loop()  // Start of loop
     {
       DEBUGS("START_PAGE");
       direction = getDirectionFromKeys();
-      DEBUGV(direction);
+      // DEBUGV(direction);
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
-      DEBUGV(SelectorPosition);
+      // DEBUGV(SelectorPosition);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
       {
-        DEBUGS("ENTER_BUTTON - pressed");
+        // DEBUGS("ENTER_BUTTON - pressed");
         if(SelectorPosition == 0)  // If selector is in START
         {
           setScreenPage(FULL_CALIBRATION_PAGE);  // Go to page full calibration
@@ -1306,7 +1301,6 @@ void loop()  // Start of loop
         ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
         setScreenPage(NORMAL_PAGE);  // Go to page normal
         SelectorPosition = 0;  // Reset selector position to 0
-        break;
       }  // End of if Enter button is press
     }  // End of "page with OK return to NORMAL"
     break;
@@ -1490,14 +1484,13 @@ void loop()  // Start of loop
     break;
     default:
     {
-      ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
-      setScreenPage(NORMAL_PAGE);  // Go to page normal
-      SelectorPosition = 0;  // Reset selector position to 0
+      // Nothing to do here, it is fine some screens have no input.
     }
   }// End of button excecution of actions
   // Do a few things in Normal page:
   if(ScreenPage == NORMAL_PAGE)  // If we are in page normal
   {
+    DEBUGS("NORMAL_PAGE - processing of weight");
     // Weight deadzone:
       WeightWithDeadzone = WeightWithDeadzone + ((SmoothedWeight - WeightWithDeadzone)/(config.deadzoneAmount+1));  // Smooth the value of temp sensor.
 
@@ -1512,14 +1505,9 @@ void loop()  // Start of loop
     {
       FinalWeightToShow = 0;
     }
-
-    // Read profile name from EEPROM if we are in page normal:
-    if(ScreenPage == NORMAL_PAGE)  // If we are in page normal
-    {
-
-      // Reset text cursor:
-      EditTextCursorPosition = 0;
-    }  // End of if we are in page normal
+    DEBUGV(FinalWeightToShow);
+   // Reset text cursor:
+    EditTextCursorPosition = 0;
   }  // End of if we are in page normal
     
   // Profile title - Transfer from array to final words:
@@ -1546,11 +1534,11 @@ void loop()  // Start of loop
   do  // Include all you want to show on the display:
   {
     // Display - Welcome page: If no full calibration is detected, we show this:
-    if(ScreenPage == 0)  // If page is on welcome page
+    if(ScreenPage == START_PAGE)  // If page is on welcome page
     {
-      // DEBUGS("Display StartPage");
+      DEBUGS("Display StartPage");
       u8g.setFont(u8g2_font_profont12_tr);  // Set small font
-      drawStr(0, 8, "The load cell");  // (x,y,"Text")
+      drawStr(0, 8, TextTheloadcell);  // (x,y,"Text")
       drawStr(0, 18, Textrequirescalibration);  // (x,y,"Text")
       drawStr(0, 28, TextDoyouwanttostart);  // (x,y,"Text")
       drawStr(0, 38, Textthefullcalibration);  // (x,y,"Text")
@@ -1563,12 +1551,10 @@ void loop()  // Start of loop
       // Selection box:
       if(SelectorPosition == 0)
       {
-        // DEBUGS("Frame0");
         u8g.drawFrame(SelectBoxXPositionRight, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for START (x,y,width,height)
       }
       if(SelectorPosition == 1)
       {
-        // DEBUGS("Frame1");
         u8g.drawFrame(0, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for NO (x,y,width,height)
       }
     }  // End of if page is on welcome page
@@ -1702,11 +1688,6 @@ void loop()  // Start of loop
         u8g.drawFrame(0, SelectBoxYPosition, 127, SelectBoxHeight);  // Draw a square for GO BACK (x,y,width,height)
       }
     }  // End of if we are in EDIT THIS PROFILE
-
-
-
-
-
     // Display - Main Menu > EDIT THIS PROFILE > TARE 1
     if(ScreenPage == TARE1_PAGE)  // If page is on TARE 1
     {
@@ -1731,10 +1712,6 @@ void loop()  // Start of loop
         u8g.drawFrame(0, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for NO (x,y,width,height)
       }
     }  // End of if page is on Tare 1
-
-
-
-
 
     // Display - Main Menu > EDIT THIS PROFILE > TARE 2
     if(ScreenPage == TARE2_PAGE)  // If page is on TARE 2
@@ -1780,7 +1757,7 @@ void loop()  // Start of loop
 
 
     // Display - Main Menu > EDIT THIS PROFILE > TARE 3
-    if(ScreenPage == 2131)  // If page is on TARE 3
+    if(ScreenPage == TARE3_PAGE)  // If page is on TARE 3
     {
       // Print profile tittle:
       u8g.drawStr(TitleXPosition, 8, currentProfilePtr->name);  // (x,y,"Text")
@@ -1950,7 +1927,7 @@ void loop()  // Start of loop
 
 
     // Display - Main Menu > EDIT THIS PROFILE > DELETE THIS PROFILE
-    if(ScreenPage == 2301)  // If page is on DELETE THIS PROFILE
+    if(ScreenPage == DELETE_PROFILE_PAGE)  // If page is on DELETE THIS PROFILE
     {
       drawStr(0, 8, TextTheprofilenamed);  // (x,y,"Text")
       u8g.drawStr(0, 18, currentProfilePtr->name);  // (x,y,"Text")
@@ -1976,7 +1953,7 @@ void loop()  // Start of loop
 
 
     // Display - Main Menu > EDIT THIS PROFILE > DELETE THIS PROFILE 2
-    if(ScreenPage == 2311)  // If page is on DELETE THIS PROFILE 2
+    if(ScreenPage == PROFILE_DELETED_PAGE)  // If page is on DELETE THIS PROFILE 2
     {
       // Print profile tittle:
       drawStr(0, 8, TextTheprofilenamed);  // (x,y,"Text")
@@ -2001,7 +1978,7 @@ void loop()  // Start of loop
 
 
     // Display - Main Menu > EDIT THIS PROFILE > DELETE THIS PROFILE 3
-    if(ScreenPage == 2312)  // If page is on DELETE THIS PROFILE 3
+    if(ScreenPage == PROFILE_NOT_DELETED_PAGE)  // If page is on DELETE THIS PROFILE 3
     {
       // Print profile tittle:
       drawStr(0, 8, TextYoucantdelete);  // (x,y,"Text")
@@ -2048,12 +2025,8 @@ void loop()  // Start of loop
       }
     }  // End of if we are in Options
 
-
-
-
-
     // Display - Main Menu > Options > Deadzone
-    if(ScreenPage == 3210)  // If page is on Deadzone
+    if(ScreenPage == DEADZONE_PAGE)  // If page is on Deadzone
     {
       // Print profile tittle:
       drawStr(40, 8, TextDEADZONE);  // (x,y,"Text")
@@ -2107,11 +2080,6 @@ void loop()  // Start of loop
       //u8g.drawLine(37, 0, 37, 63);  // Draw a line (x0,y0,x1,y1) 1 char left
       //u8g.drawLine(89, 0, 89, 63);  // Draw a line (x0,y0,x1,y1) 1 char right
     }  // End of if we are in Deadzone
-
-
-
-
-
     // Display full calibration intro:
     if(ScreenPage == FULL_CALIBRATION_PAGE)  // If page is on full calibration intro
     {
@@ -2140,7 +2108,7 @@ void loop()  // Start of loop
 
 
     // Display full calibration > Step 1:
-    if(ScreenPage == 4011)  // If page is on full calibration
+    if(ScreenPage == WEIGH_FULL_SPOOL_EXTERNAL_PAGE)  // If page is on full calibration
     {
       drawStr(0, 8, TextPlaceanyfullspool);  // (x,y,"Text")
       drawStr(0, 18, Textonarealscaleand);  // (x,y,"Text")
@@ -2169,7 +2137,7 @@ void loop()  // Start of loop
 
 
     // Display full calibration > Step 2:
-    if(ScreenPage == 4021)  // If page is on full calibration > Step 2
+    if(ScreenPage == ENTER_WEIGHT_PAGE)  // If page is on full calibration > Step 2
     {
       drawStr(0, 8, TextEntertheweight);  // (x,y,"Text")
       u8g.setCursor(60, 35);  // (x,y)
@@ -2198,7 +2166,7 @@ void loop()  // Start of loop
 
 
     // Display full calibration > Step 3:
-    if(ScreenPage == 4031)  // If page is on full calibration > Step 3
+    if(ScreenPage == PLACE_FULL_SPOOL_PAGE)  // If page is on full calibration > Step 3
     {
       drawStr(0, 8, TextPlacethatsamefull);  // (x,y,"Text")
       drawStr(0, 18, Textspoolintheholder);  // (x,y,"Text")
@@ -2222,7 +2190,7 @@ void loop()  // Start of loop
 
 
     // Display full calibration > Step 4:
-    if(ScreenPage == 4040)  // If page is on full calibration > Step 4
+    if(ScreenPage == WEIGH_FULL_SPOOL_PAGE)  // If page is on full calibration > Step 4
     {
       drawStr(0, 8, TextSavingtheweightof);  // (x,y,"Text")
       drawStr(0, 18, Textthefullspool);  // (x,y,"Text")
@@ -2234,15 +2202,14 @@ void loop()  // Start of loop
 
       // Print the inside of the progress bar:
       u8g.drawBox(2, 54, ProgressBarCounter, SelectBoxHeight -4);  // Draw a filled square for bar (x,y,width,height)
-
       // Fill progress bar gradually:
       if(ProgressBarCounter == 123)  // If the progress bar counter reach full limit
       {
         // Transfer the value of the load cell to the temporal variable;
         config.fullSpoolRaw = RawLoadCellReading;
-        
+        DEBUGV(config.fullSpoolRaw);
         ProgressBarCounter = 0;  // Reset counter
-        setScreenPage(4051);  // Go to page Full Calibration 5
+        setScreenPage(REMOVE_SPOOL_PAGE);  // Go to page Full Calibration 5
       }
       else  // If progress bar is not yet full
       {
@@ -2258,12 +2225,8 @@ void loop()  // Start of loop
       }  // End of if progress bar is not yet full
     }  // End of if page is on full calibration 4
 
-
-
-
-
     // Display full calibration > Step 5:
-    if(ScreenPage == 4051)  // If page is on full calibration > Step 5
+    if(ScreenPage == REMOVE_SPOOL_PAGE)  // If page is on full calibration > Step 5
     {
       drawStr(0, 8, TextWeightsaved);  // (x,y,"Text")
       drawStr(0, 18, TextRemovethespoolfrom);  // (x,y,"Text")
@@ -2290,7 +2253,7 @@ void loop()  // Start of loop
 
 
     // Display full calibration > Step 6:
-    if(ScreenPage == 4060)  // If page is on full calibration > Step 6
+    if(ScreenPage == WEIGH_EMPTY_SCALE_PAGE)  // If page is on full calibration > Step 6
     {
       drawStr(0, 8, TextSavingthevalueof);  // (x,y,"Text")
       drawStr(0, 18, Textanemptyholder);  // (x,y,"Text")
@@ -2306,18 +2269,11 @@ void loop()  // Start of loop
       // Fill progress bar gradually:
       if(ProgressBarCounter == 123)  // If the progress bar counter reach full limit
       {
-      //  // Transfer the value of the load cell to the EEPROM;
-      //  writeLongIntoEEPROM(EEPROM_AddressEmptyHolder, RawLoadCellReading);  // Write to EEPROM the raw value when holder is empty
-
-      //   // Record that we have done the full calibration:
-      //   EEPROM.write(EEPROM_AddressCalibrationDone, 1);  // Save in the EEPROM that we have done the Full calibration
-      //                                            // This is so when we power cycle, we don't pront the welcome screen
-
-      //   writeLongIntoEEPROM(EEPROM_AddressFullSpool, tempConfig.fullSpoolRaw);  // Write to EEPROM the raw value to the Full Calibration full spool
-      //   writeLongIntoEEPROM(EEPROM_Addressconfig.fullSpoolWeight, tempConfig.fullSpoolWeight);  // Write to EEPROM the set weight when spool is full in Full Calibration
-
+        config.emptyHolderRaw = RawLoadCellReading;
+        DEBUGV(config.emptyHolderRaw);       
+        config.calibrationDone = 1;
         ProgressBarCounter = 0;  // Reset counter
-        setScreenPage(4071);  // Go to page Full Calibration 7
+        setScreenPage(CALIBRATION_COMPLETE_PAGE);  // Go to page Full Calibration 7
       }
       else  // If progress bar is not yet full
       {
@@ -2333,12 +2289,8 @@ void loop()  // Start of loop
       }  // End of if progress bar is not yet full
     }  // End of if page is on full calibration 6
 
-
-
-
-
     // Display full calibration > Step 7:
-    if(ScreenPage == 4071)  // If page is on full calibration > Step 7
+    if(ScreenPage == CALIBRATION_COMPLETE_PAGE)  // If page is on full calibration > Step 7
     {
       // Print profile tittle:
       drawStr(0, 8, TextThecalibrationhas);  // (x,y,"Text")
@@ -2350,12 +2302,8 @@ void loop()  // Start of loop
       u8g.drawFrame(SelectBoxXPositionCenter, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for OK (x,y,width,height)
     }  // End of if page is on full calibration 7
 
-
-
-
-
     // Display Options > Factory Reset:
-    if(ScreenPage == 3310)  // If page is on Factory Reset
+    if(ScreenPage == FACTORY_RESET_PAGE)  // If page is on Factory Reset
     {
       drawStr(0, 8, TextFactoryreseterases);  // (x,y,"Text")
       drawStr(0, 18, Textallyouruserdata);  // (x,y,"Text")
@@ -2374,12 +2322,8 @@ void loop()  // Start of loop
       }
     }  // End of if page is on Display Options > Factory Reset
 
-
-
-
-
     // Display Options > Factory Reset 2:
-    if(ScreenPage == 3311)  // If page is on Factory Reset 2
+    if(ScreenPage == FACTORY_RESET2_PAGE)  // If page is on Factory Reset 2
     {
       drawStr(0, 8, TextFactoryresetin);  // (x,y,"Text")
       drawStr(0, 18, Textprogress);  // (x,y,"Text")
@@ -2390,7 +2334,7 @@ void loop()  // Start of loop
 
   
   // If we are doing a Factory Reset, excecute this:
-  if(ScreenPage == 3311)  // If page is on Factory Reset 2
+  if(ScreenPage == FACTORY_RESET2_PAGE)  // If page is on Factory Reset 2
   {
     // Clear all EEPROM:
     for(int i = 0 ; i < EEPROM.length() ; i++) {EEPROM.write(i, 255);}  // Go thourgh all the EEPROM addresses and write the default value (255)
