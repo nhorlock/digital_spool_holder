@@ -7,6 +7,13 @@
 /*
 Digital_Spool_Holder
 
+This version is a heavily refactored version of the original.
+The original was made by InterlinkKnight, I am not aware of a github or other repo for it. 
+The originalsketch is listed from the instructables page (see below).
+
+Bugs and issues with this are likely to be as a result of my changes and should be reported through my github
+repo found here: https://github.com/nhorlock/digital_spool_holder
+
 This sketch is for a scale made to measure the weight (g) of the
 remaining material in a spool. It was made mainly for 3D printers but it can be
 used for any kind of spool or container.
@@ -19,10 +26,9 @@ weight and material for the spool itself.
 
 It uses a load cell connected to a HX711 module.
 
-We also use an 1.3" OLED display 128x64 I2C with SSD1306 driver using the
+We also use an 1.3" OLED display 128x64 I2C with SSD130/SH1106 driver using the
 U8GLIB library. It also works on a 0.96" OLD display of the same characteristics
 but everything would look smaller so I don't recommend it.
-
 
 Features:
  * This sketch can measure weights from 10g to 9999g.
@@ -103,21 +109,21 @@ Reference of weight for empty spools:
 
 
 Note: When exposing the cell to very heavy weights, more than the rating,
-the cell permanetly bends a little so may require Tare. Also, with time this
+the cell permanently bends a little so may require Tare. Also, with time this
 can happen but only very little (around 3g).
 
 
-U8glib library: https://github.com/olikraus/u8glib
+U8glib library: https://github.com/olikraus/u8g2
 HX711 library: https://github.com/bogde/HX711
 
 
-User Reference Manual: https://github.com/olikraus/u8glib/wiki/userreference
-List of fonts: https://github.com/olikraus/u8glib/wiki/fontsize
+User Reference Manual: https://github.com/olikraus/u8g2/wiki
+List of fonts: https://github.com/olikraus/u8g2/wiki/fntgrp
 
-Sketch made by: InterlinkKnight
-Last modification: 2023/10/16
+Original Sketch made by: InterlinkKnight - Last modification: 2023/10/16
+Forked by nhorlock (Zyxt) latest updates on github: https://github.com/nhorlock/digital_spool_holder
 */
-#define DEBUG
+// #define DEBUG
 #ifdef DEBUG
 #define DEBUGS(Str) Serial.println(F( Str ))
 #define DEBUGV(Val) Serial.print( F(#Val ": ") ); Serial.println(Val)
@@ -130,10 +136,10 @@ Last modification: 2023/10/16
 #define ENTER_BUTTON_PIN 6  // Pin for ENTER button
 #define RIGHT_BUTTON_PIN 7  // Pin for RIGHT button
 
-
+#define PROGRESS_BAR_FULL 123
 // Create display and set pins:
-U8G2_SSD1306_128X64_NONAME_2_SW_I2C u8g(U8G2_R0, SCL, SDA);
-// U8G2_SH1106_128X64_NONAME_2_HW_I2C u8g(U8G2_R0, SCL, SDA);
+// U8G2_SSD1306_128X64_NONAME_2_SW_I2C u8g(U8G2_R0, SCL, SDA);
+U8G2_SH1106_128X64_NONAME_2_HW_I2C u8g(U8G2_R0, SCL, SDA);
 // U8GLIB_SH1106_128X64 u8g(U8G_I2C_OPT_DEV_0|U8G_I2C_OPT_FAST);  // Dev 0, Fast I2C / TWI
 
 #include "HX711.h"  // Include HX711 library for the load cell
@@ -160,13 +166,13 @@ const byte MinimumWeightAllowed = 10;  // When the weight is below this value, w
 
 
 // Debouncing buttons:
-const byte ButtonDebouncingAmount = 2;  // Debouncing amount (cycles) for how long to wait. The higher, the more
+const byte ButtonDebouncingAmount = 1;  // Debouncing amount (cycles) for how long to wait. The higher, the more
                                         // it will wait to see if button remain release to really consider is released.
                                         // It adds a lag to make sure we really release the button, ignoring micro pulses.
 
 // Holding buttons:
-const byte RepeatWhenWeHoldAmount = 15;  // For how long (cycles) to wait when holding the button, before considering is holded
-const byte RepeatWhenWeHoldFrequencyDelay = 0;  // How often (cycles) repeat pulses when we hold the button.
+const byte RepeatWhenWeHoldAmount = 5;  // For how long (cycles) to wait when holding the button, before considering is holded
+const byte RepeatWhenWeHoldFrequencyDelay = 1;  // How often (cycles) repeat pulses when we hold the button.
                                 // 0 = one cycle pulse and one cycle no (101010101...)
                                 // 1 = pulse every 2 cycles (1001001001...)
                                 // 2 = pulse every 3 cycles (1000100010001...)
@@ -197,9 +203,8 @@ const int EEPROM_AddressStart = 0;  // Address where the settings are stored in 
 // Define a struct for profile data
 struct UserProfile {
   int emptySpoolMeasuredWeight;
+  float fullSpoolFilamentWeight;
   char name[MAX_PROFILE_NAME_LEN+1];
-  byte amountOfCharTitle;
-  byte activeOrDisabled;
 };
 
 // Define a struct for the configuration data
@@ -311,6 +316,7 @@ const char TextNO[3] PROGMEM = "NO";
 const char TextSTART[6] PROGMEM = "START";
 const char TextCANCEL[7] PROGMEM = "CANCEL";
 const char TextCONTINUE[9] PROGMEM = "CONTINUE";
+const char TextRETRY[] PROGMEM = "RETRY";
 const char TextOK[3] PROGMEM = "OK";
 const char TextDELETE[7] PROGMEM = "DELETE";
 
@@ -327,9 +333,14 @@ const char TextOPTIONSMenu[10] PROGMEM = "- OPTIONS";
 const char TextGOBACKMenu[10] PROGMEM = "- GO BACK";
 
 const char TextEDITPROFILE[13] PROGMEM = "EDIT PROFILE";
-const char TextTAREZERO[7] PROGMEM = "- TARE";
+const char TextTAREZERO[] PROGMEM = "- TARE";
 const char TextEDITPROFILENAMEMenu[20] PROGMEM = "- EDIT PROFILE NAME";
 const char TextDELETETHISPROFILE[22] PROGMEM = "- DELETE THIS PROFILE";
+
+const char TextTARE[] PROGMEM = "TARE MENU";
+const char TextSelecttaretype[] PROGMEM = "Choose tare method";
+const char TextTareemptyspool[] PROGMEM = "- Tare empty spool";
+const char TextTarefullspool[] PROGMEM = "- Tare full spool";
 
 const char TextPlaceintheholder[20] PROGMEM = "Place in the holder";
 const char Texttheemptyspoolyou[20] PROGMEM = "the empty spool you";
@@ -338,6 +349,7 @@ const char Textwanttouseforthis[21] PROGMEM = "want to use for this";
 const char Textprofile[9] PROGMEM = "profile.";
 
 const char TextSavingtheweightof[21] PROGMEM = "Saving the weight of";
+const char TextEstimatingtheweightof[] PROGMEM = "Estimating the weight of";
 const char Texttheemptyspool[17] PROGMEM = "the empty spool.";
 const char TextPleasedonttouch[20] PROGMEM = "Please, don't touch";
 const char Textanything[10] PROGMEM = "anything.";
@@ -345,6 +357,8 @@ const char Textanything[10] PROGMEM = "anything.";
 const char TextTheweightofthe[18] PROGMEM = "The weight of the";
 const char Textemptyspoolhasbeen[21] PROGMEM = "empty spool has been";
 const char Textsaved[7] PROGMEM = "saved.";
+const char Textestimated[] PROGMEM = "estimated.";
+const char Textincorrectlyestimated[] PROGMEM = "incorrectly estimated.";
 
 const char TextEDITPROFILENAME[18] PROGMEM = "EDIT PROFILE NAME";
 const char TextADDNEWPROFILE[16] PROGMEM = "ADD NEW PROFILE";
@@ -434,6 +448,7 @@ enum PAGES
   NORMAL_PAGE= 100,
   MAIN_MENU_PAGE = 1001,
   EDIT_PROFILE_PAGE = 2101,
+  TARE0_PAGE = 2110,
   TARE1_PAGE = 2111,
   TARE2_PAGE = 2120, // Tare 2: saving the weight
   TARE3_PAGE = 2131, // Tare 3: weight saved, ok to continue
@@ -441,6 +456,11 @@ enum PAGES
   DELETE_PROFILE_PAGE = 2301,
   PROFILE_DELETED_PAGE = 2311,
   PROFILE_NOT_DELETED_PAGE = 2312, // only 1 left, delete failed
+  ENTER_FILAMENT_WEIGHT_PAGE = 2401, // Enter filament weight
+  FULL_TARE2_PAGE = 2402, // Add the spool to the holder
+  FULL_TARE3_PAGE = 2403, // Weigh the full spool, predict spool from weight
+  FULL_TARE4_PAGE = 2404, // Save predicted spool weight 
+  FULL_TARE5_PAGE = 2405, // Save predicted spool weight 
   NEW_PROFILE_PAGE = 3001,
   NO_MORE_SPACE_AVAILABLE_PAGE = 3012,
   OPTIONS_PAGE = 3201,
@@ -781,6 +801,16 @@ void readSmoothedWeight()
   DEBUGV(SmoothedWeight);
   // End of smoothing process  
 }
+int strlen_trimmed(const char *s) 
+{
+  // returns length of s, not including nul terminator or trailing spaces.
+  int stringLen = strlen(s);  // Get the length of the title
+  while(s[stringLen-1] == ' ')
+  {
+    stringLen--;
+  }  
+  return stringLen;
+}
 
 void addLetterToProfileName(char letter) {
   DEBUGV(letter);
@@ -789,20 +819,46 @@ void addLetterToProfileName(char letter) {
   // Increase the amount of characters in the profile name
   // if we are at the edge of the set amount. Also, prevent going
   // over the limit for the amount of characters:
-  int titleLength = strlen(tempProfileTitleBuffer);
-  if (EditTextCursorPosition == titleLength - 1 && titleLength < MAX_PROFILE_NAME_LEN) 
+  int titleLength = strlen_trimmed(tempProfileTitleBuffer);
+  if (EditTextCursorPosition == titleLength -1 && titleLength < MAX_PROFILE_NAME_LEN) 
   {
     tempProfileTitleBuffer[EditTextCursorPosition + 1] = ' ';  // Set the next character as SPACE to clear whatever is recorded there
   }
-
-  // Increase text cursor, but make sure EditTextCursorPosition stays inside limits:
-  if (EditTextCursorPosition > titleLength - 2) 
-  {
-    EditTextCursorPosition = 0;  // Reset text cursor to the beginning
-  } 
-  else 
+  if(EditTextCursorPosition < MAX_PROFILE_NAME_LEN-1)
   {
     EditTextCursorPosition++;
+  }
+}
+void removeLetterFromProfileName() {
+  int titleLength = strlen_trimmed(tempProfileTitleBuffer);
+  DEBUGV(titleLength);
+  DEBUGV(EditTextCursorPosition);
+  DEBUGV(tempProfileTitleBuffer);
+  // if we are in the normal range 
+  // or we are at the end but the final charater is blank
+  if ( ((EditTextCursorPosition > 0 && titleLength >0) && 
+        (EditTextCursorPosition < MAX_PROFILE_NAME_LEN-1 )) 
+      || 
+       ((EditTextCursorPosition == MAX_PROFILE_NAME_LEN-1) &&
+        (tempProfileTitleBuffer[EditTextCursorPosition] == ' ')))
+  {
+    DEBUGS("memcpy");
+    memcpy(tempProfileTitleBuffer + EditTextCursorPosition - 1,
+           tempProfileTitleBuffer + EditTextCursorPosition,
+           titleLength - EditTextCursorPosition + 1);
+  }
+  else if (EditTextCursorPosition >= MAX_PROFILE_NAME_LEN-1)
+  {
+    DEBUGS("inplace");
+    tempProfileTitleBuffer[MAX_PROFILE_NAME_LEN-1] = ' ';
+  }
+  if( ( EditTextCursorPosition > 0 
+        && EditTextCursorPosition < MAX_PROFILE_NAME_LEN-1 )
+      || ( EditTextCursorPosition == MAX_PROFILE_NAME_LEN-1 
+        && tempProfileTitleBuffer[EditTextCursorPosition-1]==' ' ))
+  {
+    DEBUGS("move cursor");
+    EditTextCursorPosition--;
   }
 }
 
@@ -815,21 +871,39 @@ void resetSequence()
       DEBUGV(config.userProfileSlotOrderSequence[i]);
     }
 }
+void clearProfileName(UserProfile * prof)
+{
+  memset(prof->name, '\0', MAX_PROFILE_NAME_LEN+1); // memset includes the trailing nul too
+}
+
+void clearTempProfileName()
+{
+  memset(tempProfileTitleBuffer, '\0', MAX_PROFILE_NAME_LEN+1); // memset includes the trailing nul too
+}
 void resetProfiles()
 {
     for(int i=0; i<NUM_PROFILE_SLOTS; i++)
     {
       UserProfile * prof = &config.profiles[i];
       prof->emptySpoolMeasuredWeight=-1;
-      strcpy(prof->name,"Default");
-      prof->name[7] = '\0';
+      clearProfileName(prof);
     }
+}
+
+void setProfileToDefault(int profileNumber)
+{
+  UserProfile * prof = &config.profiles[profileNumber];
+  strcpy(prof->name, "Default");
+  prof->emptySpoolMeasuredWeight=177; // Set the weight of the empty spool to 177 grams
 }
 
 void setup()  // Start of setup
 {
- DEBUGS("setup - BEGIN");
+#ifdef DEBUG
+// we only need the serial port open in debug mode, so we don't need to open it in normal mode.
   Serial.begin(115200); // Any baud rate should work
+#endif
+  DEBUGS("setup - BEGIN");
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);  // Start scale object and assign the pins
 
   // Set pins as inputs or outputs:
@@ -846,6 +920,8 @@ void setup()  // Start of setup
     // No calibration so this is a new start, wipe the profiles
     resetSequence();
     resetProfiles();
+    setProfileToDefault(0);
+    config.sequenceOfCurrentProfileSlot=0;
   }
 
   // Check if the EEPROM value is valid. If not, it means it's in the default so we need to set
@@ -932,6 +1008,10 @@ void loop()  // Start of loop
   // 2111 = Main menu > Edit profile > Tare 1: Place in the holder the empty spool
   // 2120 = Main menu > Edit profile > Tare 2: Saving the weight
   // 2131 = Main menu > Edit profile > Tare 3: Weight saved, with selection on OK
+  // 2401 = Main menu > Edit profile > FullTare 1: Enter the filament weight
+  // 2402 = Main menu > Edit profile > FullTare 2: Place in the holder the empty spool
+  // 2403 = Main menu > Edit profile > FullTare 3: Saving the weight, estimating spool weight
+  // 2404 = Main menu > Edit profile > FullTare 4: Spool weight saved, with selection on OK
   // 2201 = Main menu > Edit profile > Edit name
   // 2301 = Main menu > Edit profile > Delete profile, with selection on CANCEL
   // 2311 = Main menu > Edit profile > Profile has been deleted, with selection on OK
@@ -952,6 +1032,7 @@ void loop()  // Start of loop
   // 3311 = Main menu > Options > FACTORY RESET 2
 
   int direction = 0;
+  direction = getDirectionFromKeys();
   // DEBUGS("Processing input for Screen ");
   if(lastScreenPage!= ScreenPage)
   {
@@ -964,9 +1045,6 @@ void loop()  // Start of loop
   {
     case START_PAGE:  // If we are in page 0
     {
-      // DEBUGS("START_PAGE");
-      direction = getDirectionFromKeys();
-      // DEBUGV(direction);
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // DEBUGV(SelectorPosition);
       // Enter button:
@@ -992,7 +1070,6 @@ void loop()  // Start of loop
     case NORMAL_PAGE:  // If we are in page "normal"
     {
       // left/right changes profile
-      direction = getDirectionFromKeys();
       nextActiveSlot(direction);  // Go to the next slot
 
       // ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
@@ -1008,7 +1085,6 @@ void loop()  // Start of loop
     case MAIN_MENU_PAGE:  // If we are in page main menu
     {
       // DEBUGS("MAIN_MENU_PAGE");
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 3, 0);  // Go to the next slot
   
       // Enter button:
@@ -1043,8 +1119,9 @@ void loop()  // Start of loop
             SelectorPosition = 0;  // Reset selector position to 0
             // update our ptr to match the new selection:
             currentProfilePtr = getCurrentProfile();
-            currentProfilePtr->name[0]='\0';
-            strcpy(tempProfileTitleBuffer,currentProfilePtr->name); // pre-populate with current title
+            clearProfileName(currentProfilePtr);
+            clearTempProfileName();
+            EditTextCursorPosition = 0;
             // Write the default empty spool weight:
             currentProfilePtr->emptySpoolMeasuredWeight = 0;
             break;
@@ -1077,7 +1154,6 @@ void loop()  // Start of loop
     break;
     case EDIT_PROFILE_PAGE:  
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 3, 0);
   
       // Enter button:
@@ -1087,7 +1163,7 @@ void loop()  // Start of loop
         {
           case 0:  // If selector is in Tare
           {
-            setScreenPage(TARE1_PAGE);  // Go to page  Tare 1
+            setScreenPage(TARE0_PAGE);  // Go to page  Tare 1
             SelectorPosition = 0;  // Reset selector position to 0
           }
           break;
@@ -1095,6 +1171,7 @@ void loop()  // Start of loop
           {
             setScreenPage(EDIT_PROFILE_NAME_PAGE);  // Go to page EDIT PROFILE NAME
             strcpy(tempProfileTitleBuffer,currentProfilePtr->name); // pre-populate with current title
+            EditTextCursorPosition=strlen(currentProfilePtr->name);
             SelectorPosition = 0;  // Reset selector position to 0
           }
           break;
@@ -1127,10 +1204,39 @@ void loop()  // Start of loop
       }  // End If enter pressed
     }  // End of if we are in page EDIT PROFILE MENU
     break;
+    case TARE0_PAGE:  // If we are in page Tare 0
+    {
+      // Left and right buttons:
+      SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 2, 0);
+      // Enter button:
+      if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
+      {
+        if(SelectorPosition == 0)  // If selector is in Empty spool
+        {
+          setScreenPage(TARE1_PAGE);  // Go to page Tare 2
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;
+        }
+        if(SelectorPosition == 1)  // If selector is in CANCEL
+        {
+          setScreenPage(ENTER_FILAMENT_WEIGHT_PAGE);  // Go to page normal
+          currentProfilePtr->fullSpoolFilamentWeight=1000;
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;
+        }
+        if(SelectorPosition == 2)  // If selector is in CANCEL
+        {
+          ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
+          setScreenPage(NORMAL_PAGE);  // Go to page normal
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;
+        }
+      }  // End of if Enter button is press
+    }  // End of if we are in page Tare 1
+    break;
     case TARE1_PAGE:  // If we are in page Tare 1
     {
       // Left and right buttons:
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1151,10 +1257,32 @@ void loop()  // Start of loop
       }  // End of if Enter button is press
     }  // End of if we are in page Tare 1
     break;
+    case FULL_TARE5_PAGE:  
+    {
+      // Left and right buttons:
+      SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
+      // Enter button:
+      if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
+      {
+        if(SelectorPosition == 0)  // If selector is in CANCEL
+        {
+          setScreenPage(TARE0_PAGE);  // Go back to page Tare page
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;
+        }
+        if(SelectorPosition == 1)  // If selector is in RETRY
+        {
+          ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
+          setScreenPage(ENTER_FILAMENT_WEIGHT_PAGE);  // Go to page normal
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;
+        }
+      }  // End of if Enter button is press
+    }  // End of if we are in page Tare 1
+    break;
     case EDIT_PROFILE_NAME_PAGE:  // If we are in page EDIT PROFILE
     case NEW_PROFILE_PAGE:  // If we are in page NEW PROFILE
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 47, 0);
       // Enter button:
       if(enterButtonData.activationStatePulses == 1)  // If Enter button is press, inclusing long holding for fast repeat
@@ -1222,8 +1350,7 @@ void loop()  // Start of loop
         {
           if(EditTextCursorPosition > 0)  // If the text cursor position is 1 or more
           {
-            tempProfileTitleBuffer[EditTextCursorPosition] = '\0';  // Remove the character at the cursor position
-            EditTextCursorPosition = EditTextCursorPosition - 1;  // Move the text cursor 1 to the left
+            removeLetterFromProfileName();  // Remove the character at the cursor position
           }  // End of if the text cursor position is above the minimum
           break;
         }
@@ -1232,8 +1359,6 @@ void loop()  // Start of loop
           // If we are creating a new profile, when press CANCEL it should delete the profile to cancel operation:
           if( ScreenPage == NEW_PROFILE_PAGE )  // If page is on ADD NEW PROFILE
           {
-            // The following I took from DELETE section, but I change a few things like landing page and return label:
-
             currentProfilePtr->emptySpoolMeasuredWeight = -1;
 
             if(countValidProfiles() > 1)  // If there is more than one profile
@@ -1277,7 +1402,7 @@ void loop()  // Start of loop
           else if( ScreenPage == NEW_PROFILE_PAGE )  // If we are in page new profile
           {
             ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
-            setScreenPage(TARE1_PAGE);  // Go to page Tare
+            setScreenPage(TARE0_PAGE);  // Go to page Tare 0
           }
           
           SelectorPosition = 0;  // Reset selector position to 0
@@ -1289,7 +1414,6 @@ void loop()  // Start of loop
     case DELETE_PROFILE_PAGE:  // If we are in page Delete profile
     {
       // Left and right buttons:
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1323,6 +1447,7 @@ void loop()  // Start of loop
     case PROFILE_NOT_DELETED_PAGE:
     case NO_MORE_SPACE_AVAILABLE_PAGE:
     case TARE3_PAGE:
+    case FULL_TARE4_PAGE:
     case CALIBRATION_COMPLETE_PAGE:
     {
       // Enter button:
@@ -1336,7 +1461,6 @@ void loop()  // Start of loop
     break;
     case OPTIONS_PAGE:  // If we are in page OPTIONS
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 3, 0);
         // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1371,7 +1495,6 @@ void loop()  // Start of loop
     break;
     case DEADZONE_PAGE:  // If we are in page Deadzone
     {
-      direction = getDirectionFromKeys();
        config.deadzoneAmount = nextClampedAndLooped(config.deadzoneAmount, direction, 50, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1385,7 +1508,6 @@ void loop()  // Start of loop
     }  // End of if we are in page Deadzone
     case FULL_CALIBRATION_PAGE:  // If we are in page Full Calibration intro
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1408,7 +1530,6 @@ void loop()  // Start of loop
     break;
     case WEIGH_FULL_SPOOL_EXTERNAL_PAGE:  // If we are in page Full calibration 2
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1430,7 +1551,6 @@ void loop()  // Start of loop
     break;
     case ENTER_WEIGHT_PAGE:  // If we are in page Full Calibration 3
     {
-      direction = getDirectionFromKeys();
       config.fullSpoolWeight = nextClampedAndLooped(config.fullSpoolWeight, direction, 3000, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1441,9 +1561,42 @@ void loop()  // Start of loop
       }  // End of if Enter button is press
     }  // End of if we are in page Full Calibration 3
     break;
+    case ENTER_FILAMENT_WEIGHT_PAGE:  // If we are in page Full Calibration 3
+    {
+      currentProfilePtr->fullSpoolFilamentWeight = nextClampedAndLooped(currentProfilePtr->fullSpoolFilamentWeight, direction, 3000, 0);
+      // Enter button:
+      if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
+      {
+        setScreenPage(FULL_TARE2_PAGE);  // Go to page Full Calibration 4
+        SelectorPosition = 0;  // Reset selector position to 0
+        break;  // Skip the rest part of the code to check for button presses
+      }  // End of if Enter button is press
+    }  // End of if we are in page Full Calibration 3
+    break;
+    
+    case FULL_TARE2_PAGE: 
+    {
+      SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);      
+      // Enter button:
+      if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
+      {
+        if(SelectorPosition == 0)  // If selector is in CONTINUE
+        {
+          setScreenPage(FULL_TARE3_PAGE);  // Go to page Full Tare 3 to weight it
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;  // Skip the rest part of the code to check for button presses
+        }
+        if(SelectorPosition == 1)  // If selector is in CANCEL
+        {
+          ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
+          setScreenPage(NORMAL_PAGE);  // Go to page normal
+          SelectorPosition = 0;  // Reset selector position to 0
+          break;  // Skip the rest part of the code to check for button presses
+        }
+      }  // End of if Enter button is press
+    }  // End of if we are in page Full calibration 4
     case PLACE_FULL_SPOOL_PAGE:  // If we are in page Full calibration 4
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);      
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1466,7 +1619,6 @@ void loop()  // Start of loop
   
     case REMOVE_SPOOL_PAGE:  // If we are in page Full calibration 6
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1489,7 +1641,6 @@ void loop()  // Start of loop
     break;
     case FACTORY_RESET_PAGE:  // If we are in page Factory Reset
     {
-      direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -1717,6 +1868,31 @@ void loop()  // Start of loop
         u8g.drawFrame(0, SelectBoxYPosition, 127, SelectBoxHeight);  // Draw a square for GO BACK (x,y,width,height)
       }
     }  // End of if we are in EDIT THIS PROFILE
+    // Display - Main Menu > EDIT THIS PROFILE > TARE 0 (which type of Tare)
+    if(ScreenPage == TARE0_PAGE)  // If page is on TARE 1
+    {
+      // Print profile tittle:
+      u8g.drawStr(TitleXPosition, 8, currentProfilePtr->name);  // (x,y,"Text")
+      drawStr(28, 18, TextTARE);  // (x,y,"Text")            
+      drawStr(0, 29, TextSelecttaretype);  // (x,y,"Text")
+      drawStr(0, 40, TextTareemptyspool);  // (x,y,"Text")
+      drawStr(0, 51, TextTarefullspool);  // (x,y,"Text")
+      drawStr(0, 62, TextGOBACKMenu);  // (x,y,"Text")
+      // Selection box:
+      // Selection box:
+      if(SelectorPosition == 0)
+      {
+        u8g.drawFrame(0, 30, 127, SelectBoxHeight);  // Draw a square for ADD NEW PROFILE (x,y,width,height)
+      }
+      if(SelectorPosition == 1)
+      {
+        u8g.drawFrame(0, 41, 127, SelectBoxHeight);  // Draw a square for FULL CALIBRATION (x,y,width,height)
+      }
+      if(SelectorPosition == 2)
+      {
+        u8g.drawFrame(0, SelectBoxYPosition, 127, SelectBoxHeight);  // Draw a square for GO BACK (x,y,width,height)
+      }
+    }  // End of if page is on Tare 1
     // Display - Main Menu > EDIT THIS PROFILE > TARE 1
     if(ScreenPage == TARE1_PAGE)  // If page is on TARE 1
     {
@@ -1760,7 +1936,7 @@ void loop()  // Start of loop
       u8g.drawBox(2, 54, ProgressBarCounter, SelectBoxHeight -4);  // Draw a filled square for bar (x,y,width,height)
 
       // Fill progress bar gradually:
-      if(ProgressBarCounter == 123)  // If the progress bar counter reach full limit
+      if(ProgressBarCounter == PROGRESS_BAR_FULL)  // If the progress bar counter reach full limit
       {
         currentProfilePtr->emptySpoolMeasuredWeight =  HolderWeight;
         
@@ -1804,6 +1980,147 @@ void loop()  // Start of loop
       //u8g.drawLine(89, 0, 89, 63);  // Draw a line (x0,y0,x1,y1) 1 char right
           
     }  // End of if page is on Tare 3
+    if(ScreenPage == FULL_TARE2_PAGE)  
+    {
+      // Print profile tittle:
+      u8g.drawStr(TitleXPosition, 8, currentProfilePtr->name);  // (x,y,"Text")
+            
+      drawStr(0, 18, TextPlaceintheholder);  // (x,y,"Text")
+      drawStr(0, 28, Textthefullspoolyou);  // (x,y,"Text")
+      drawStr(0, 38, Textwanttouseforthis);  // (x,y,"Text")
+      drawStr(0, 48, Textprofile);  // (x,y,"Text")
+
+      drawStr(10, 62, TextCANCEL);  // (x,y,"Text")
+      drawStr(77, 62, TextCONTINUE);  // (x,y,"Text")
+
+      // Selection box:
+      if(SelectorPosition == 0)
+      {
+        u8g.drawFrame(SelectBoxXPositionRight, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for START (x,y,width,height)
+      }
+      if(SelectorPosition == 1)
+      {
+        u8g.drawFrame(0, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for NO (x,y,width,height)
+      }
+    }  
+
+    // Display - Main Menu > EDIT THIS PROFILE > full TARE 3
+    if(ScreenPage == FULL_TARE3_PAGE)  
+    {
+      // Print profile tittle:
+      u8g.drawStr(TitleXPosition, 8, currentProfilePtr->name);  // (x,y,"Text")
+      
+      drawStr(0, 18, TextEstimatingtheweightof);  // (x,y,"Text")
+      drawStr(0, 28, Texttheemptyspool);  // (x,y,"Text")
+      drawStr(0, 38, TextPleasedonttouch);  // (x,y,"Text")
+      drawStr(0, 48, Textanything);  // (x,y,"Text")
+
+      // Progress bar:
+      u8g.drawFrame(0, SelectBoxYPosition, 127, SelectBoxHeight);  // Draw a square for frame (x,y,width,height)
+
+      // Print the inside of the progress bar:
+      u8g.drawBox(2, 54, ProgressBarCounter, SelectBoxHeight -4);  // Draw a filled square for bar (x,y,width,height)
+
+      // Fill progress bar gradually:
+      if(ProgressBarCounter == PROGRESS_BAR_FULL)  // If the progress bar counter reach full limit
+      {
+        currentProfilePtr->emptySpoolMeasuredWeight =  HolderWeight-currentProfilePtr->fullSpoolFilamentWeight;
+        ProgressBarCounter = 0;  // Reset counter
+        if(currentProfilePtr->emptySpoolMeasuredWeight <= 0)
+        {
+          setScreenPage(FULL_TARE5_PAGE);  
+          // this simply doesn't add up so bale out
+        }
+        else
+        {
+          setScreenPage(FULL_TARE4_PAGE);  // Go to page Full tare 4
+        }
+      }
+      else  // If progress bar is not yet full
+      {
+        if(ProgressBarSpeedCounter == ProgressBarSpeedAmount)  // If we waited enough
+        {
+          ProgressBarCounter = ProgressBarCounter + 1;  // Increase counter by 1
+          ProgressBarSpeedCounter = 0;  // Reset counter
+        }
+        else  // If we are not yet in the limit of the counter
+        {
+          ProgressBarSpeedCounter = ProgressBarSpeedCounter + 1;  // Increase counter
+        }
+      }  // End of if progress bar is not yet full
+    }  // End of if page is on Tare 2
+
+    // Display - Main Menu > EDIT THIS PROFILE > FULL TARE 4
+    if(ScreenPage == FULL_TARE4_PAGE)
+    {
+      // Print profile tittle:
+      u8g.drawStr(TitleXPosition, 8, currentProfilePtr->name);  // (x,y,"Text")
+            
+      drawStr(0, 18, TextTheweightofthe);  // (x,y,"Text")
+      drawStr(0, 28, Textemptyspoolhasbeen);  // (x,y,"Text")
+      drawStr(0, 38, Textestimated);  // (x,y,"Text")
+      u8g.drawStr(40, 38, currentProfilePtr->emptySpoolMeasuredWeight);  // (x,y,"Text")
+      drawStr(58, 62, TextOK);  // (x,y,"Text")
+
+      // Selection box:
+      u8g.drawFrame(SelectBoxXPositionCenter, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for OK (x,y,width,height)
+
+      // Centering lines:
+      // This is only used when testing centering items on the screen
+      //u8g.drawLine(63, 0, 63, 63);  // Draw a line (x0,y0,x1,y1) Vertical center
+    
+      //u8g.drawLine(37, 0, 37, 63);  // Draw a line (x0,y0,x1,y1) 1 char left
+      //u8g.drawLine(89, 0, 89, 63);  // Draw a line (x0,y0,x1,y1) 1 char right
+          
+    }  // End of if page is on Tare 3
+    if(ScreenPage == FULL_TARE5_PAGE)
+    {
+      // Print profile tittle:
+      u8g.drawStr(TitleXPosition, 8, currentProfilePtr->name);  // (x,y,"Text")
+            
+      drawStr(0, 18, TextTheweightofthe);  // (x,y,"Text")
+      drawStr(0, 28, Textemptyspoolhasbeen);  // (x,y,"Text")
+      drawStr(0, 38, Textincorrectlyestimated);  // (x,y,"Text")
+      drawStr(12, 62, TextCANCEL);  // (x,y,"Text")  Correctly centered
+      drawStr(86, 62, TextRETRY);  // (x,y,"Text")  Correctly centered
+
+      // Selection box:
+      if(SelectorPosition == 0)
+      {
+        u8g.drawFrame(0, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for NO (x,y,width,height)
+      }
+      if(SelectorPosition == 1)
+      {
+        u8g.drawFrame(SelectBoxXPositionRight, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for START (x,y,width,height)
+      }
+    }  // End of if page is on Tare 3
+
+    // Display Tare using full spool
+    if(ScreenPage == ENTER_FILAMENT_WEIGHT_PAGE)  // If page is on full calibration > Step 2
+    {
+      drawStr(0, 8, TextEntertheweight);  // (x,y,"Text")
+      u8g.setCursor(40, 35);  // (x,y)
+
+      u8g.print(currentProfilePtr->fullSpoolFilamentWeight);  // Print full spool weight selected by user in calibration
+
+      drawStr(58, 62, TextOK);  // (x,y,"Text")
+
+      // Selection box:
+      u8g.drawFrame(SelectBoxXPositionCenter, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for OK (x,y,width,height)
+
+      // Big arrows:
+      u8g.drawTriangle(0,30,    11,24,    11,36);  // Draw a filled triangle (x0,y0,    x1,y1,    x2,y2) LEFT ARROW
+      u8g.drawTriangle(127,30,    116,24,    116,36);  // Draw a filled triangle (x0,y0,    x1,y1,    x2,y2) RIGHT ARROW
+
+      // Centering lines:
+      // This is only used when testing centering items on the screen
+      //u8g.drawLine(63, 0, 63, 63);  // Draw a line (x0,y0,x1,y1) Vertical center
+    
+      //u8g.drawLine(37, 0, 37, 63);  // Draw a line (x0,y0,x1,y1) 1 char left
+      //u8g.drawLine(89, 0, 89, 63);  // Draw a line (x0,y0,x1,y1) 1 char right
+    }  // End of if page is on full calibration 2
+
+
 
     // Display - Main Menu > EDIT THIS PROFILE > EDIT PROFILE NAME
     if(ScreenPage == EDIT_PROFILE_NAME_PAGE || ScreenPage == NEW_PROFILE_PAGE)  // If page is on EDIT PROFILE NAME or NEW PROFILE
@@ -1868,15 +2185,15 @@ void loop()  // Start of loop
         drawStr(49, 48, ABCTextCharacterOPTION1);  // (x,y,"Text")
         u8g.drawFrame(28, 38, 71, 13);  // Draw filled square
         //u8g.setColorIndex(0);  // Print the next erasing the filled box
-        u8g.drawLine(47, 46, 47, 41);  // Draw a line (x0,y0,x1,y1) 1 char left
-        u8g.drawLine(79, 46, 79, 41);  // Draw a line (x0,y0,x1,y1) 1 char right
-        u8g.drawLine(47, 47, 79, 47);  // Draw a line (x0,y0,x1,y1) horizontal
+        // u8g.drawLine(47, 46, 47, 41);  // Draw a line (x0,y0,x1,y1) 1 char left
+        // u8g.drawLine(79, 46, 79, 41);  // Draw a line (x0,y0,x1,y1) 1 char right
+        // u8g.drawLine(47, 47, 79, 47);  // Draw a line (x0,y0,x1,y1) horizontal
         //u8g.setColorIndex(1);  // Return to printing the normal way
 
       }
       else if(SelectorPosition == 45)  // BACKSPACE
       {
-        drawStr(37, 48, ABCTextCharacterOPTION3);  // (x,y,"Text")
+        // drawStr(37, 48, ABCTextCharacterOPTION3);  // (x,y,"Text")
 
         u8g.drawFrame(28, 38, 71, 13);  // Draw filled square (x,y,width,height)
 
@@ -2185,10 +2502,6 @@ void loop()  // Start of loop
       //u8g.drawLine(89, 0, 89, 63);  // Draw a line (x0,y0,x1,y1) 1 char right
     }  // End of if page is on full calibration 2
 
-
-
-
-
     // Display full calibration > Step 3:
     if(ScreenPage == PLACE_FULL_SPOOL_PAGE)  // If page is on full calibration > Step 3
     {
@@ -2227,7 +2540,7 @@ void loop()  // Start of loop
       // Print the inside of the progress bar:
       u8g.drawBox(2, 54, ProgressBarCounter, SelectBoxHeight -4);  // Draw a filled square for bar (x,y,width,height)
       // Fill progress bar gradually:
-      if(ProgressBarCounter == 123)  // If the progress bar counter reach full limit
+      if(ProgressBarCounter == PROGRESS_BAR_FULL)  // If the progress bar counter reach full limit
       {
         // Transfer the value of the load cell to the temporal variable;
         config.fullSpoolRaw = RawLoadCellReading;
@@ -2291,7 +2604,7 @@ void loop()  // Start of loop
       u8g.drawBox(2, 54, ProgressBarCounter, SelectBoxHeight -4);  // Draw a filled square for bar (x,y,width,height)
 
       // Fill progress bar gradually:
-      if(ProgressBarCounter == 123)  // If the progress bar counter reach full limit
+      if(ProgressBarCounter == PROGRESS_BAR_FULL)  // If the progress bar counter reach full limit
       {
         config.emptyHolderRaw = RawLoadCellReading;
         DEBUGV(config.emptyHolderRaw);       
