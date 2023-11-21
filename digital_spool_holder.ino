@@ -333,6 +333,7 @@ const char TextDELETETHISPROFILE[22] PROGMEM = "- DELETE THIS PROFILE";
 
 const char TextPlaceintheholder[20] PROGMEM = "Place in the holder";
 const char Texttheemptyspoolyou[20] PROGMEM = "the empty spool you";
+const char Textthefullspoolyou[20] PROGMEM = "the full spool you";
 const char Textwanttouseforthis[21] PROGMEM = "want to use for this";
 const char Textprofile[9] PROGMEM = "profile.";
 
@@ -461,10 +462,10 @@ void(* resetFunc) (void) = 0;//declare reset function at address 0
 
 UserProfile * getCurrentProfile()
 {
-  DEBUGS("Getting profile");
-  DEBUGV(config.sequenceOfCurrentProfileSlot);
-  DEBUGV(config.userProfileSlotOrderSequence[config.sequenceOfCurrentProfileSlot]);
-  DEBUGV(config.profiles[config.userProfileSlotOrderSequence[config.sequenceOfCurrentProfileSlot]].name);
+  // DEBUGS("Getting profile");
+  // DEBUGV(config.sequenceOfCurrentProfileSlot);
+  // DEBUGV(config.userProfileSlotOrderSequence[config.sequenceOfCurrentProfileSlot]);
+  // DEBUGV(config.profiles[config.userProfileSlotOrderSequence[config.sequenceOfCurrentProfileSlot]].name);
 
   return &config.profiles[config.userProfileSlotOrderSequence[config.sequenceOfCurrentProfileSlot]];
 }
@@ -670,22 +671,39 @@ int getDirectionFromKeys()
 
 void ResetSmoothing()  // Start of reseting smoothing and deadzone variables to start calculating from scratch:
 { 
-  
+  DEBUGS("ResetSmoothing");
   // Match the correct Profile number to the Profile slot:
   currentProfilePtr = getCurrentProfile();
+  DEBUGS("Got profile");
 
     // To prevent the smoothing process from starting from 0, we set the smoothing variables to store the current cell values:
 
   // Read scale sensor:
+  if(scale.is_ready())
+  {
+    // do nothing for now
+  }
+  else
+  {
+    DEBUGS("Scale sensor not ready");
+    return;
+  }
+  
   RawLoadCellReading = scale.read();
+  DEBUGS("got raw cell reading");
 
   RawLoadCellReading = RawLoadCellReading /10;  // Remove one digit from the raw reading to reduce the value and could be handle by the map function
 
   // Remap to convert Raw Values into grams:
   // this effectively takes the full sppool raw and the empty holder raw, as the raw range and maps those to 0-"given weight", thus establishing a ratio of raw to real.
+  DEBUGV(RawLoadCellReading);
+  DEBUGV(config.emptyHolderRaw);
+  DEBUGV(config.fullSpoolRaw);
+  DEBUGV(config.fullSpoolWeight);
   HolderWeight = map(RawLoadCellReading, config.emptyHolderRaw, config.fullSpoolRaw, 0, config.fullSpoolWeight); 
+  DEBUGV(HolderWeight);
   HolderWeight = constrain(HolderWeight, 0, 9999);  // limits value between min and max to prevent going over limits
-    
+  DEBUGV(currentProfilePtr->emptySpoolMeasuredWeight);    
   HolderWeight = HolderWeight - currentProfilePtr->emptySpoolMeasuredWeight;  // Remove the weight of the empty spool
 
   // Prevent going under 0:
@@ -694,13 +712,11 @@ void ResetSmoothing()  // Start of reseting smoothing and deadzone variables to 
     HolderWeight = 0;
   }
   
-  // We are going to write all the arrays one by one, until we write all of them.
-  // To do that we use a while to create a mini loop that will only finish when condition is false:
   readIndex1 = 0;  // Reset array number
   while(readIndex1 < numReadings1)
   {
     readings1[readIndex1] = HolderWeight;  // Records the current value so the smoothing doesn't start from 0
-    readIndex1 = readIndex1 + 1;  // Increase array number to write the following array
+    readIndex1 ++;  // Increase array number to write the following array
   }  // End of while
 
   total1 = HolderWeight * numReadings1;  // Multiply the current value with the amount of samples/arrays
@@ -709,18 +725,62 @@ void ResetSmoothing()  // Start of reseting smoothing and deadzone variables to 
   
   // I want the final value to start at the correct value considering the deadzone and to be
   // at the lower edge of the deadzone so I do the following:
-  WeightWithDeadzone = HolderWeight;  // Record on deadzone the current value so it doesn't start from 0
   SmoothedWeight = HolderWeight;
-
-  WeightWithDeadzone = WeightWithDeadzone + config.deadzoneAmount;  
-                                        // When i boot-up arduino, I want the output to show the
-                                        // lower edge of the deadzone so the value is close to what it would be in normal operation.
-                                        // I manually used to do that every time I boot-up arduino by pressing more weight into
-                                        // the holder and it would stabilize in the edge of the dead zone.
-                                        // To do this automaticly I added this line in the setup.
-                                        // Basically the first value is going to be the current real value of the scale.
-  
+  DEBUGV(SmoothedWeight);    
+  WeightWithDeadzone = HolderWeight + config.deadzoneAmount;  
+  DEBUGV(WeightWithDeadzone);    
+    // When i boot-up arduino, I want the output to show the
+    // lower edge of the deadzone so the value is close to what it would be in normal operation.
+    // I manually used to do that every time I boot-up arduino by pressing more weight into
+    // the holder and it would stabilize in the edge of the dead zone.
+    // To do this automaticly I added this line in the setup.
+    // Basically the first value is going to be the current real value of the scale.
+  DEBUGS("Smoothing Reset - Complete");
 }  // End of reseting smoothing and deadzone variables to start calculating from scratch
+
+void readSmoothedWeight()
+{
+  // Read load cell only if it's available. This is so the loop run faster
+  if(scale.is_ready())
+  {
+    RawLoadCellReading = scale.read();
+    RawLoadCellReading = RawLoadCellReading /10;  // Remove one digit from the raw reading to reduce the value and could be handle by the map function
+  }
+  else
+  {
+    return;
+  }
+
+  // Remap to convert Raw Values into grams:
+  HolderWeight = map (RawLoadCellReading, config.emptyHolderRaw, config.fullSpoolRaw, 0, config.fullSpoolWeight);  // Remaps temperature IN to color value
+  HolderWeight = constrain(HolderWeight, 0, 9999);  // limits value between min and max to prevent going over limits
+
+  // Add to the measurement the weight of the empty spool in that profile so we measure the weight of the filament only:
+  CurrentProfileWeightShown = HolderWeight - currentProfilePtr->emptySpoolMeasuredWeight;
+  CurrentProfileWeightShown = constrain(CurrentProfileWeightShown, 0, 9999);  // limits value between min and max to prevent going over limits
+
+  // Smooth Weight:
+  // Smoothing process:
+  // Subtract the last reading:
+  total1 = total1 - readings1[readIndex1];
+  // Read value:
+  readings1[readIndex1] = CurrentProfileWeightShown;
+  // Add the reading to the total:
+  total1 = total1 + readings1[readIndex1];
+  // Advance to the next position in the array:
+  readIndex1 = readIndex1 + 1;
+
+  // if we're at the end of the array...
+  if (readIndex1 >= numReadings1)
+  {
+    readIndex1 = 0;    // Wrap around to the beginning
+  }
+
+  // Calculate the average:
+  SmoothedWeight = total1 / numReadings1;
+  DEBUGV(SmoothedWeight);
+  // End of smoothing process  
+}
 
 void addLetterToProfileName(char letter) {
   DEBUGV(letter);
@@ -838,48 +898,13 @@ void setup()  // Start of setup
   u8g.begin();
    // End of setup
 }
+
 void loop()  // Start of loop
 {
-
+  int lastScreenPage = -1;
   readConfigurationFromEEPROM();
 
-  // Read load cell only if it's available. This is so the loop run faster
-  if(scale.is_ready())
-  {
-    RawLoadCellReading = scale.read();
-    RawLoadCellReading = RawLoadCellReading /10;  // Remove one digit from the raw reading to reduce the value and could be handle by the map function
-  }
-  
-
-  // Remap to convert Raw Values into grams:
-  HolderWeight = map (RawLoadCellReading, config.emptyHolderRaw, config.fullSpoolRaw, 0, config.fullSpoolWeight);  // Remaps temperature IN to color value
-  HolderWeight = constrain(HolderWeight, 0, 9999);  // limits value between min and max to prevent going over limits
-
-  // Add to the measurement the weight of the empty spool in that profile so we measure the weight of the filament only:
-  CurrentProfileWeightShown = HolderWeight - currentProfilePtr->emptySpoolMeasuredWeight;
-  CurrentProfileWeightShown = constrain(CurrentProfileWeightShown, 0, 9999);  // limits value between min and max to prevent going over limits
-
-  // Smooth Weight:
-  // Smoothing process:
-  // Subtract the last reading:
-  total1 = total1 - readings1[readIndex1];
-  // Read value:
-  readings1[readIndex1] = CurrentProfileWeightShown;
-  // Add the reading to the total:
-  total1 = total1 + readings1[readIndex1];
-  // Advance to the next position in the array:
-  readIndex1 = readIndex1 + 1;
-
-  // if we're at the end of the array...
-  if (readIndex1 >= numReadings1)
-  {
-    readIndex1 = 0;    // Wrap around to the beginning
-  }
-
-  // Calculate the average:
-  SmoothedWeight = total1 / numReadings1;
-
-  // End of smoothing process
+  readSmoothedWeight();
 
   /////////////
   // Buttons //
@@ -927,14 +952,19 @@ void loop()  // Start of loop
   // 3311 = Main menu > Options > FACTORY RESET 2
 
   int direction = 0;
-  DEBUGS("Processing input for Screen ");
-  DEBUGV(ScreenPage);
+  // DEBUGS("Processing input for Screen ");
+  if(lastScreenPage!= ScreenPage)
+  {
+    // screen has changed
+    DEBUGV(ScreenPage);
+  }
+  lastScreenPage = ScreenPage;
 
   switch(ScreenPage)
   {
     case START_PAGE:  // If we are in page 0
     {
-      DEBUGS("START_PAGE");
+      // DEBUGS("START_PAGE");
       direction = getDirectionFromKeys();
       // DEBUGV(direction);
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 1, 0);
@@ -965,7 +995,7 @@ void loop()  // Start of loop
       direction = getDirectionFromKeys();
       nextActiveSlot(direction);  // Go to the next slot
 
-      ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
+      // ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
 
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
@@ -977,32 +1007,32 @@ void loop()  // Start of loop
     break;
     case MAIN_MENU_PAGE:  // If we are in page main menu
     {
-      DEBUGS("MAIN_MENU_PAGE");
+      // DEBUGS("MAIN_MENU_PAGE");
       direction = getDirectionFromKeys();
       SelectorPosition = nextClampedAndLooped(SelectorPosition, direction, 3, 0);  // Go to the next slot
   
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
       {
-        DEBUGS("ENTER_PRESSED");
+        // DEBUGS("ENTER_PRESSED");
         DEBUGV(SelectorPosition);
         if(SelectorPosition == 0)  // If selector is in EDIT THIS PROFILE
         {
-          DEBUGS("EDIT SELECTED");
+          // DEBUGS("EDIT SELECTED");
           setScreenPage(EDIT_PROFILE_PAGE);  // Go to page EDIT THIS PROFILE
           SelectorPosition = 0;  // Reset selector position to 0
           break;
         }
         if(SelectorPosition == 1)  // If selector is in ADD NEW PROFILE
         {
-          DEBUGS("NEW SELECTED");
-          DEBUGS("CAN WE GO TO NEW PROFILE");
+          // DEBUGS("NEW SELECTED");
+          // DEBUGS("CAN WE GO TO NEW PROFILE");
           // Check if there is profile sectors available:
           int tempProfileSlot = checkAvailableProfileSlots();
           DEBUGV(tempProfileSlot);
           if( tempProfileSlot >= 0)  // If there are profile sectors available
           {
-            DEBUGS("YES");
+            // DEBUGS("YES");
             // Profile user slot:
             // Check the next profile user slot available.
             // If the next slot is already in use, we should move it forward to make space
@@ -1021,7 +1051,7 @@ void loop()  // Start of loop
           }  // End of if there are profile sectors available
           else  // If there are not profile sectors available
           {
-            DEBUGS("NO");
+            // DEBUGS("NO");
             setScreenPage(NO_MORE_SPACE_AVAILABLE_PAGE);  // Go to page "no more space available"
             SelectorPosition = 0;  // Reset selector position to 0
             break;  // Skip the rest part of the code to check for button presses
@@ -1029,14 +1059,14 @@ void loop()  // Start of loop
         }  // End of if selector is in ADD NEW PROFILE
         if(SelectorPosition == 2)  // If selector is in OPTIONS
         {
-          DEBUGS("OPTIONS SELECTED");
+          // DEBUGS("OPTIONS SELECTED");
           setScreenPage(OPTIONS_PAGE);  // Go to page OPTIONS
           SelectorPosition = 0;  // Reset selector position to 0
           break;  // Skip the rest part of the code to check for button presses
         }
         if(SelectorPosition == 3)  // If selector is in GO BACK
         {
-          DEBUGS("BACK SELECTED");
+          // DEBUGS("BACK SELECTED");
           ResetSmoothing();  // Reset smoothing and deadzone variables to start calculating from scratch
           setScreenPage(NORMAL_PAGE);  // Go to page normal
           SelectorPosition = 0;  // Reset selector position to 0
@@ -1074,13 +1104,13 @@ void loop()  // Start of loop
             // This is because if we have only 1 profile, we are not going to allowed.
             if(countValidProfiles() > 1)  // If there are more than 1 profile recorded
             {
-              setScreenPage(2301);  // Go to page DELETE THIS PROFILE
+              setScreenPage(DELETE_PROFILE_PAGE);  // Go to page DELETE THIS PROFILE
               SelectorPosition = 0;  // Reset selector position to 0
               break;  // Skip the rest part of the code to check for button presses
             }
             else
             {
-              setScreenPage(2312);  // Go to page only one profile left so you can't delete it
+              setScreenPage(PROFILE_NOT_DELETED_PAGE);  // Go to page only one profile left so you can't delete it
               SelectorPosition = 0;  // Reset selector position to 0
               break;  // Skip the rest part of the code to check for button presses
             }
@@ -1362,7 +1392,7 @@ void loop()  // Start of loop
       {
         if(SelectorPosition == 0)  // If selector is in CONTINUE
         {
-          setScreenPage(4011);  // Go to page Full Calibration 2
+          setScreenPage(WEIGH_FULL_SPOOL_EXTERNAL_PAGE);  // Go to page Full Calibration 2
           SelectorPosition = 0;  // Reset selector position to 0
           break;  // Skip the rest part of the code to check for button presses
         }
@@ -1385,7 +1415,7 @@ void loop()  // Start of loop
       {
         if(SelectorPosition == 0)  // If selector is in CONTINUE
         {
-          setScreenPage(4021);  // Go to page Full Calibration 3
+          setScreenPage(ENTER_WEIGHT_PAGE);  // Go to page Full Calibration 3
           SelectorPosition = 0;  // Reset selector position to 0
           break;  // Skip the rest part of the code to check for button presses
         }
@@ -1401,8 +1431,7 @@ void loop()  // Start of loop
     case ENTER_WEIGHT_PAGE:  // If we are in page Full Calibration 3
     {
       direction = getDirectionFromKeys();
-      int weight = 1000;
-      weight = nextClampedAndLooped(weight, direction, 3000, 0);
+      config.fullSpoolWeight = nextClampedAndLooped(config.fullSpoolWeight, direction, 3000, 0);
       // Enter button:
       if(enterButtonData.onePulseOnly == 1)  // If Enter button is press
       {
@@ -1536,7 +1565,7 @@ void loop()  // Start of loop
     // Display - Welcome page: If no full calibration is detected, we show this:
     if(ScreenPage == START_PAGE)  // If page is on welcome page
     {
-      DEBUGS("Display StartPage");
+      // DEBUGS("Display StartPage");
       u8g.setFont(u8g2_font_profont12_tr);  // Set small font
       drawStr(0, 8, TextTheloadcell);  // (x,y,"Text")
       drawStr(0, 18, Textrequirescalibration);  // (x,y,"Text")
@@ -1736,7 +1765,7 @@ void loop()  // Start of loop
         currentProfilePtr->emptySpoolMeasuredWeight =  HolderWeight;
         
         ProgressBarCounter = 0;  // Reset counter
-        setScreenPage(2131);  // Go to page Tare 3
+        setScreenPage(TARE3_PAGE);  // Go to page Tare 3
       }
       else  // If progress bar is not yet full
       {
@@ -1751,10 +1780,6 @@ void loop()  // Start of loop
         }
       }  // End of if progress bar is not yet full
     }  // End of if page is on Tare 2
-
-
-
-
 
     // Display - Main Menu > EDIT THIS PROFILE > TARE 3
     if(ScreenPage == TARE3_PAGE)  // If page is on TARE 3
@@ -2140,9 +2165,8 @@ void loop()  // Start of loop
     if(ScreenPage == ENTER_WEIGHT_PAGE)  // If page is on full calibration > Step 2
     {
       drawStr(0, 8, TextEntertheweight);  // (x,y,"Text")
-      u8g.setCursor(60, 35);  // (x,y)
+      u8g.setCursor(40, 35);  // (x,y)
       u8g.print(config.fullSpoolWeight);  // Print full spool weight selected by user in calibration
-      drawStr(90, 35, Textg);  // (x,y,"Text")
 
       drawStr(58, 62, TextOK);  // (x,y,"Text")
 
