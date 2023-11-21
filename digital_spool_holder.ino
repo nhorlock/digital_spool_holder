@@ -1,9 +1,6 @@
-  Serial.print("-17.");
 #include <U8g2lib.h>
 #include <assert.h>
 #include <Wire.h>
-// #include <U8glib.h>
-
 /*
 Digital_Spool_Holder
 
@@ -113,7 +110,7 @@ the cell permanently bends a little so may require Tare. Also, with time this
 can happen but only very little (around 3g).
 
 
-U8glib library: https://github.com/olikraus/u8g2
+U8g2 library: https://github.com/olikraus/u8g2
 HX711 library: https://github.com/bogde/HX711
 
 
@@ -123,6 +120,10 @@ List of fonts: https://github.com/olikraus/u8g2/wiki/fntgrp
 Original Sketch made by: InterlinkKnight - Last modification: 2023/10/16
 Forked by nhorlock (Zyxt) latest updates on github: https://github.com/nhorlock/digital_spool_holder
 */
+
+
+// Various defines for debug and whatnot
+
 // #define DEBUG
 #ifdef DEBUG
 #define DEBUGS(Str) Serial.println(F( Str ))
@@ -131,16 +132,17 @@ Forked by nhorlock (Zyxt) latest updates on github: https://github.com/nhorlock/
 #define DEBUGS(Str) (void)(F(Str))
 #define DEBUGV(Val) (void)(F(#Val ": ") ); (void)(Val)
 #endif
-// Pins:
-#define LEFT_BUTTON_PIN 5  // Pin for LEFT button
-#define ENTER_BUTTON_PIN 6  // Pin for ENTER button
-#define RIGHT_BUTTON_PIN 7  // Pin for RIGHT button
 
+
+// this define is purely a convenience when testing changes to speed up the delay.
+// do not change for any normal use case.
 #define PROGRESS_BAR_FULL 123
+
 // Create display and set pins:
+
+// Use the 1306 driver if your display supports it.
 // U8G2_SSD1306_128X64_NONAME_2_SW_I2C u8g(U8G2_R0, SCL, SDA);
 U8G2_SH1106_128X64_NONAME_2_HW_I2C u8g(U8G2_R0, SCL, SDA);
-// U8GLIB_SH1106_128X64 u8g(U8G_I2C_OPT_DEV_0|U8G_I2C_OPT_FAST);  // Dev 0, Fast I2C / TWI
 
 #include "HX711.h"  // Include HX711 library for the load cell
 
@@ -150,6 +152,10 @@ const byte LOADCELL_SCK_PIN = 3;
 
 HX711 scale;  // Create object for the load cell and give it a name
 
+// push button Pins:
+const byte LEFT_BUTTON_PIN = 5;  // Pin for LEFT button
+const byte ENTER_BUTTON_PIN = 6;  // Pin for ENTER button
+const byte RIGHT_BUTTON_PIN = 7;  // Pin for RIGHT button
 
 #include "EEPROM.h"  // Include EEPROM library to be able to store settings
 
@@ -158,12 +164,13 @@ HX711 scale;  // Create object for the load cell and give it a name
 ///////////////
 // The following items are the values that you could want to change:
 
+#define NUM_PROFILE_SLOTS 20
 // Smoothing the weight:
 const byte numReadings1 = 20;  // Number of samples for smoothing. The more samples, the smoother the value
                                // although that will delay refreshing the value. 
 
+// TODO(Neil): would be nice to show "<10" rather than zero.
 const byte MinimumWeightAllowed = 10;  // When the weight is below this value, we are going to consider that the weight is actually 0 so we show a 0
-
 
 // Debouncing buttons:
 const byte ButtonDebouncingAmount = 1;  // Debouncing amount (cycles) for how long to wait. The higher, the more
@@ -185,13 +192,12 @@ const byte SelectBoxXPositionRight = 73;  // X position of the selection box tha
 const byte SelectBoxYPosition = 52;  // Y position of the selection box
 const byte SelectBoxXPositionCenter = 36;  // X position of the selection box that goes to the center
 
-const byte ProgressBarSpeedAmount = 5;  // How many cycles to wait to increase the progress bar by 1 pixel.
+const byte ProgressBarSpeedAmount = 4;  // How many cycles to wait to increase the progress bar by 1 pixel.
                                         // The higher, the slower the bar will increase.
 
 // Text Cursor:
-const byte BlinkingCursorAmount = 5;  // How many cycles go between blincking the cursor when editing text.
+const byte BlinkingCursorAmount = 5;  // How many cycles go between blinking the cursor when editing text.
                                       // The higher, the slower is going to do the blinking.
-#define NUM_PROFILE_SLOTS 20
 
 const int EEPROM_AddressStart = 0;  // Address where the settings are stored in the EEPROM
 
@@ -202,15 +208,15 @@ const int EEPROM_AddressStart = 0;  // Address where the settings are stored in 
 #define MAX_PROFILE_NAME_LEN 21
 // Define a struct for profile data
 struct UserProfile {
-  int emptySpoolMeasuredWeight;
-  float fullSpoolFilamentWeight;
-  char name[MAX_PROFILE_NAME_LEN+1];
+  int emptySpoolMeasuredWeight; // -1 when unused, 0 when defined but not calibrated, calibration value in other cases
+  float fullSpoolFilamentWeight; // used to store the notional/nomial weight of a full spool, used by the Full spool tare
+  char name[MAX_PROFILE_NAME_LEN+1]; // I think we can work this one out.
 };
 
 // Define a struct for the configuration data
 struct Configuration {
   byte calibrationDone; // was offset 0
-                        // 0 = Full Calibration never doned
+                        // 0 = Full Calibration never done
                         // 1 = Full Calibration has been done before
                         // Uses 1 byte
   float emptyHolderRaw; // empty holder (4 byte float)
@@ -226,25 +232,29 @@ struct Configuration {
 };
 
 Configuration config;
-UserProfile* currentProfilePtr = nullptr;
+UserProfile* currentProfilePtr = nullptr; // used to simplify profile access later.
+const char * lastDeletedProfileName = nullptr; // used to simplify profile access later.
+// helper functions
 
+// drawStr - equivalent to u8g2.drawStr() function but works with PROGMEM storage class on Arduino
 void drawStr(int x, int y, const char* text)
 {
   u8g.setCursor(x,y);
   u8g.print((class __FlashStringHelper *)text);
 }
 
-// Function to read configuration data from EEPROM
+// EEPROM helper functions:
+// The original code wrote to EEPROM in a mostly byte-wise fashion.
+// these functions replace that with a single get/put of the struct.
 void readConfigurationFromEEPROM() {
   EEPROM.get(EEPROM_AddressStart, config);
 }
 
-// Function to write configuration data to EEPROM
 void writeConfigurationToEEPROM() {
   EEPROM.put(EEPROM_AddressStart, config);
 }
-
 // End of EEPROM Config handling
+
 
 byte ProgressBarCounter;  // Counter for progress bar
 byte ProgressBarSpeedCounter;  // The counter for the speed of the progress bar
@@ -263,7 +273,7 @@ long CurrentProfileWeightShown;  // This variable stores the weight minus the we
 long SmoothedWeight;  // Weight with smooth so is more stable
 long SmoothedWeightToShowAsInputInDeadzone;  // When we are in deadzone selection, this is the input is going to show
 
-char tempProfileTitleBuffer[22] = "PROFILE 1";  // Character array for profile name before checking the amount of characters.
+char tempProfileTitleBuffer[MAX_PROFILE_NAME_LEN+1] = "";  // Character array for profile name before checking the amount of characters.
                                               // The current profile name is stored here, readed from EEPROM
 
 long WeightWithDeadzone;  // Weight with deadzone
@@ -426,15 +436,11 @@ const char TextFactoryresetin[17] PROGMEM = "Factory reset in";
 const char Textprogress[10] PROGMEM = "progress.";
 const char TextPleasewait[15] PROGMEM = "Please wait...";
 
-const int initialfullSpoolWeight = 1250;  // When doing a full calibration, this is the weight of the full spool selected by the user
+const int initialFullSpoolWeight = 1250;  // When doing a full calibration, this is the weight of the full spool selected by the user
 
 int EditTextCursorPosition;  // Editing text - Cursor position
 
 int TextCursorPositionX;  // X position for text cursor
-
-byte BackspacePosition;  // When editing text, the BACKSPACE moves the characters that are on the right side and mvoes it to the left.
-                         // This variable is used to temporally store the position of the "while loop" to move all characters.
-
 
 void setScreenPage(int page)
 {
@@ -1427,7 +1433,9 @@ void loop()  // Start of loop
         }
         if(SelectorPosition == 1)  // If selector is in DELETE
         {
-          currentProfilePtr->emptySpoolMeasuredWeight = -1;
+          currentProfilePtr->emptySpoolMeasuredWeight = -1; // mark as deleted
+          // deletion is logical, the lastDeletedName pointer can be set without concern of it vanishing.
+          lastDeletedProfileName = currentProfilePtr->name;  // Save ptr to the name of the profile to be deleted
           if(countValidProfiles() > 1)  // If there is more than one profile
           {
             config.sequenceOfCurrentProfileSlot = nextActiveSlot(-1);
@@ -2299,7 +2307,14 @@ void loop()  // Start of loop
     {
       // Print profile tittle:
       drawStr(0, 8, TextTheprofilenamed);  // (x,y,"Text")
-      u8g.drawStr(0, 18, currentProfilePtr->name);  // (x,y,"Text")
+      if(lastDeletedProfileName)
+      {
+        u8g.drawStr(0, 18, lastDeletedProfileName);  // (x,y,"Text")
+      }
+      else
+      {
+        u8g.drawStr(0, 18, "<Unknown>");  // (x,y,"Text")
+      }
       drawStr(0, 28, Texthasbeendeleted);  // (x,y,"Text")
 
       drawStr(58, 62, TextOK);  // (x,y,"Text")
@@ -2461,7 +2476,7 @@ void loop()  // Start of loop
       drawStr(77, 62, TextCONTINUE);  // (x,y,"Text")
       
       // Reset variable for selecting the weight to the default value:
-      config.fullSpoolWeight = 1250;  // This is the default value I want to start with
+      config.fullSpoolWeight = initialFullSpoolWeight;  // This is the default value I want to start with
 
       // Selection box:
       if(SelectorPosition == 0)
@@ -2473,10 +2488,6 @@ void loop()  // Start of loop
         u8g.drawFrame(0, SelectBoxYPosition, SelectBoxWigth, SelectBoxHeight);  // Draw a square for NO (x,y,width,height)
       }
     }  // End of if page is on full calibration 1
-
-
-
-
 
     // Display full calibration > Step 2:
     if(ScreenPage == ENTER_WEIGHT_PAGE)  // If page is on full calibration > Step 2
