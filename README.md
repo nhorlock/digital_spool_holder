@@ -40,7 +40,7 @@ All of the components that you will need are listed as part of the Instructables
 
 ### Printables
 
-The main printables are found on [InterlinkKnight's thingiverse listing](https://www.thingiverse.com/thing:5677322). You will also find a number of remixes listed there includig my own remix of the spool holder base for the K1/K1 Max.
+The main printables are found on [InterlinkKnight's thingiverse listing](https://www.thingiverse.com/thing:5677322). You will also find a number of remixes listed there including my own remix of the spool holder base for the K1/K1 Max.
 
 ## Notable changes
 
